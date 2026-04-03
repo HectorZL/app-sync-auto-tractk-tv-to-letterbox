@@ -33,6 +33,13 @@ from pathlib import Path
 
 import httpx
 from playwright.async_api import async_playwright, TimeoutError as PWTimeoutError
+from playwright_stealth import stealth_async
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # en Github Actions no hará ni falta
+
 
 # ─── Configuración de logging ───────────────────────────────────────────────
 logging.basicConfig(
@@ -239,21 +246,21 @@ async def upload_to_letterboxd(
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",  # imprescindible en CI
-            ],
+                "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled"
+            ]
         )
 
-        # Contexto con User-Agent realista para no ser bloqueado
         context = await browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1280, "height": 800},
-            locale="en-US",
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            viewport={"width": 1920, "height": 1080},
+            locale="en-US"
         )
+
         page = await context.new_page()
+        
+        # Aplicar stealth (oculta firmas de WebDriver y automatización)
+        await stealth_async(page)
 
         try:
             # ── PASO 1: Login ────────────────────────────────────────────
@@ -265,10 +272,13 @@ async def upload_to_letterboxd(
             await page.fill('input[name="password"]', password)
 
             # Click en el botón de login
-            await page.click('button[type="submit"]')
+            await page.click('.button-action[type="submit"], input[type="submit"], button[type="submit"]')
 
-            # Esperar a que la página responda (Letterboxd puede redirigir a /username/ u otras URLs)
-            await page.wait_for_load_state("networkidle", timeout=20_000)
+            # Esperar a que la página responda sin fallar si hay requests sueltos
+            await page.wait_for_load_state("domcontentloaded", timeout=20_000)
+
+            # Pequeña pausa explícita para que el server termine su redireccion
+            await page.wait_for_timeout(3000)
 
             current_url = page.url
             log.info(f"URL tras login: {current_url}")

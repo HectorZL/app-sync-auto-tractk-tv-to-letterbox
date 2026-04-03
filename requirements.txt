@@ -7,6 +7,7 @@ httpx==0.27.0
 # Automatización del navegador (login + upload en Letterboxd)
 # Versión 1.49+ compatible con Ubuntu 24.04 (sin el bug de libsound2)
 playwright==1.49.0
+playwright-stealth==1.0.6
 
 # Utilidades de asyncio (ya viene con Python 3.10+, pero por claridad)
 # asyncio es parte de la stdlib
