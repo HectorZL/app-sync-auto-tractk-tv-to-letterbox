@@ -1,0 +1,77 @@
+name: Trakt → Letterboxd Sync
+
+# ──────────────────────────────────────────────────────────────────────────
+#  CUÁNDO SE EJECUTA
+# ──────────────────────────────────────────────────────────────────────────
+on:
+  # Cron: cada hora (simula tiempo real con ~1h de retraso máximo)
+  # Formato: minuto hora día-mes mes día-semana
+  # Consumo estimado: ~2 min × 24 ejecuciones/día = ~1,440 min/mes (OK en repo público, OK en privado)
+  schedule:
+    - cron: "0 * * * *"   # Cada hora en punto (ej: 09:00, 10:00, 11:00...)
+
+  # Permite ejecutarlo manualmente desde la pestaña "Actions" de tu repo
+  workflow_dispatch:
+    inputs:
+      days_back:
+        description: "Cuántos días hacia atrás sincronizar"
+        required: false
+        default: "1"   # hourly mode: solo necesitamos las últimas 24h
+      headless:
+        description: "Correr en modo headless (sin ventana visible)"
+        required: false
+        default: "true"
+
+# ──────────────────────────────────────────────────────────────────────────
+#  JOBS
+# ──────────────────────────────────────────────────────────────────────────
+jobs:
+  sync:
+    name: Sincronizar películas
+    runs-on: ubuntu-latest   # Servidor Linux gratuito de GitHub
+
+    steps:
+      # 1. Descargar el código del repositorio
+      - name: 📥 Checkout del repositorio
+        uses: actions/checkout@v4
+
+      # 2. Configurar Python 3.11
+      - name: 🐍 Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"  # cachea dependencias entre ejecuciones (más rápido)
+
+      # 3. Instalar dependencias Python
+      - name: 📦 Instalar dependencias
+        run: pip install -r requirements.txt
+
+      # 4. Instalar Chromium (navegador para Playwright)
+      - name: 🌐 Instalar Chromium para Playwright
+        run: |
+          playwright install chromium
+          playwright install-deps chromium
+
+      # 5. Ejecutar el script de sincronización
+      - name: 🎬 Ejecutar sincronización
+        env:
+          # ── Secrets configurados en tu repositorio ──
+          # GitHub → Settings → Secrets and variables → Actions → New secret
+          TRAKT_CLIENT_ID:   ${{ secrets.TRAKT_CLIENT_ID }}
+          TRAKT_USERNAME:    ${{ secrets.TRAKT_USERNAME }}
+          LETTERBOXD_USER:   ${{ secrets.LETTERBOXD_USER }}
+          LETTERBOXD_PASS:   ${{ secrets.LETTERBOXD_PASS }}
+
+          # ── Variables opcionales ──
+          DAYS_BACK: ${{ github.event.inputs.days_back || '1' }}   # en modo hourly, solo 24h atrás
+          HEADLESS:  ${{ github.event.inputs.headless || 'true' }}
+        run: python sync.py
+
+      # 6. Si falla, subir capturas de pantalla como artefacto para debug
+      - name: 📸 Subir capturas de error
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-screenshots
+          path: /tmp/letterboxd_*.png
+          retention-days: 7  # se eliminan solos después de 7 días

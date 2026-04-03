@@ -1,0 +1,36 @@
+# Archivos de entorno (¡nunca subir a GitHub!)
+.env
+*.env.local
+
+# Cache de Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Entorno virtual
+venv/
+env/
+.venv/
+.env/
+
+# Archivos temporales de Playwright / capturas de pantalla de debug
+*.png
+*.jpg
+
+# CSV exportados localmente
+*.csv
+
+# Archivos de IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
