@@ -267,26 +267,25 @@ async def upload_to_letterboxd(
             # Click en el botón de login
             await page.click('button[type="submit"]')
 
-            # Esperar redirección (significa login exitoso)
-            try:
-                await page.wait_for_url("https://letterboxd.com/", timeout=15_000)
-                log.info("✅ Login exitoso en Letterboxd")
-            except PWTimeoutError:
-                # Verificar si hay mensaje de error
-                error_el = page.locator(".flash-messages li, .error-text")
+            # Esperar a que la página responda (Letterboxd puede redirigir a /username/ u otras URLs)
+            await page.wait_for_load_state("networkidle", timeout=20_000)
+
+            current_url = page.url
+            log.info(f"URL tras login: {current_url}")
+
+            # Si seguimos en sign-in → login falló
+            if "sign-in" in current_url or "login" in current_url:
+                error_el = page.locator(".flash-messages li, .error-text, [class*='error']")
+                error_msg = ""
                 if await error_el.count() > 0:
-                    error_msg = await error_el.first.text_content()
-                    raise LetterboxdLoginError(
-                        f"Login fallido: {error_msg.strip()}"
-                    )
-                # Si no hay error visible pero tampoco redirigió, chequeamos URL
-                current_url = page.url
-                if "sign-in" in current_url:
-                    raise LetterboxdLoginError(
-                        "Login fallido: la página no redirigió correctamente. "
-                        "Verifica LETTERBOXD_USER y LETTERBOXD_PASS en Secrets."
-                    )
-                log.warning("Login: redirección inesperada pero continuando…")
+                    error_msg = (await error_el.first.text_content() or "").strip()
+                raise LetterboxdLoginError(
+                    f"Login fallido: usuario o contraseña incorrectos. "
+                    f"Mensaje Letterboxd: '{error_msg}'. "
+                    f"Verifica LETTERBOXD_USER y LETTERBOXD_PASS en los Secrets de GitHub."
+                )
+
+            log.info(f"✅ Login exitoso en Letterboxd (redirigió a: {current_url})")
 
             # Pequeña pausa para estabilidad
             await page.wait_for_timeout(2000)
