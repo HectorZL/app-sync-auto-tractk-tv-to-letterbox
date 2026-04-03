@@ -28,7 +28,7 @@ on:
 jobs:
   sync:
     name: Sincronizar películas
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04   # ubuntu-latest (24.04) rompe playwright 1.44 (libsound2)
 
     env:
       # Evita los warnings de deprecación de Node.js 20
