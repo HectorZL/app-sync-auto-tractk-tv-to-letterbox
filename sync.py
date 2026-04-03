@@ -278,17 +278,30 @@ def upload_to_letterboxd(
             sb.open(LETTERBOXD_IMPORT_URL)
             sb.sleep(3)
 
-            # ── PASO 3: Subir el archivo CSV ─────────────────────────────
-            log.info(f"Subiendo CSV: {csv_path}")
-            # SB choose_file funciona perfectamente con inputs ocultos
-            sb.choose_file('input[type="file"]', csv_path)
-            sb.sleep(2)
+            # ── PASO 3+4: Subir CSV y enviar formulario via fetch() puro ──────────
+            log.info(f"Leyendo CSV para enviarlo via fetch: {csv_path}")
+            with open(csv_path, "rb") as f:
+                csv_bytes = list(f.read())
 
-            # ── PASO 4: Confirmar la importación ─────────────────────────
-            # Usar JavaScript puro para hacer click en el botón (evita errores de "NotVisible" si el CSS está alterado)
-            log.info("Forzando clic en el botón de Start Import...")
-            sb.execute_script("document.querySelector('form#imdb-form input[type=\"submit\"], input[value=\"Start Import\"]').click()")
-            log.info("Importación enviada. Esperando a que Cloudflare verifique y complete…")
+            # Leer CSRF del cookie inyectado
+            csrf_val = csrf_cookie or ""
+
+            log.info("Enviando formulario de importación via JavaScript fetch()...")
+            result = sb.execute_script(f"""
+                const bytes = new Uint8Array({csv_bytes});
+                const blob = new Blob([bytes], {{type: 'text/csv'}});
+                const fd = new FormData();
+                fd.append('__csrf', '{csrf_val}');
+                fd.append('file', blob, 'trakt_export.csv');
+                return fetch('/import/csv/', {{
+                    method: 'POST',
+                    body: fd,
+                    credentials: 'include',
+                    redirect: 'follow'
+                }}).then(r => r.status + '|' + r.url).catch(e => 'ERROR:' + e);
+            """)
+            sb.sleep(5)
+            log.info(f"Resultado fetch: {result}")
 
             # Esperar resultado (hasta 60 segundos)
             try:
