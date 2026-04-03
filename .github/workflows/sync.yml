@@ -50,11 +50,9 @@ jobs:
       - name: 📦 Instalar dependencias
         run: pip install -r requirements.txt
 
-      # 4. Instalar Chromium (navegador para Playwright)
+      # 4. Instalar Chromium (con todas sus dependencias del sistema)
       - name: 🌐 Instalar Chromium para Playwright
-        run: |
-          playwright install chromium
-          playwright install-deps chromium
+        run: playwright install --with-deps chromium
 
       # 5. Ejecutar el script de sincronización
       - name: 🎬 Ejecutar sincronización
