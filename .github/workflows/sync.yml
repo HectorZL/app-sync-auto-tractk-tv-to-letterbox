@@ -28,7 +28,11 @@ on:
 jobs:
   sync:
     name: Sincronizar películas
-    runs-on: ubuntu-latest   # Servidor Linux gratuito de GitHub
+    runs-on: ubuntu-latest
+
+    env:
+      # Evita los warnings de deprecación de Node.js 20
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       # 1. Descargar el código del repositorio
@@ -74,4 +78,5 @@ jobs:
         with:
           name: playwright-screenshots
           path: /tmp/letterboxd_*.png
-          retention-days: 7  # se eliminan solos después de 7 días
+          retention-days: 7
+          if-no-files-found: ignore   # ← no falla si no hay capturas
