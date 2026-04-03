@@ -285,8 +285,9 @@ def upload_to_letterboxd(
             sb.sleep(2)
 
             # ── PASO 4: Confirmar la importación ─────────────────────────
-            # Click the start import button
-            sb.click('#imdb-form input[type="submit"], input[value="Start Import"]')
+            # Usar JavaScript puro para hacer click en el botón (evita errores de "NotVisible" si el CSS está alterado)
+            log.info("Forzando clic en el botón de Start Import...")
+            sb.execute_script("document.querySelector('form#imdb-form input[type=\"submit\"], input[value=\"Start Import\"]').click()")
             log.info("Importación enviada. Esperando a que Cloudflare verifique y complete…")
 
             # Esperar resultado (hasta 60 segundos)
