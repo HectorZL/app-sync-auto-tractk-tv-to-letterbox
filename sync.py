@@ -32,8 +32,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import httpx
-from playwright.async_api import async_playwright, TimeoutError as PWTimeoutError
-from playwright_stealth import stealth_async
+from seleniumbase import SB
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -228,140 +227,92 @@ def build_csv(items: list[dict]) -> str:
 #  MÓDULO 2: LETTERBOXD  →  subir CSV via Playwright
 # ═══════════════════════════════════════════════════════════════════════════
 
-async def upload_to_letterboxd(
+def upload_to_letterboxd(
     csv_path: str,
     username: str,
     password: str,
     headless: bool = True,
 ) -> None:
     """
-    Abre Letterboxd.com, hace login y sube el CSV de importación.
-    Usa Playwright con Chromium.
+    Abre Letterboxd.com, inyecta sesión y sube el CSV de importación.
+    Usa SeleniumBase UC Mode para aplastar el captcha de Cloudflare.
     """
-    log.info("Iniciando Playwright para importar en Letterboxd…")
+    log.info("Iniciando SeleniumBase UC Mode para burlar Cloudflare…")
 
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(
-            headless=headless,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled"
-            ]
-        )
+    import os
+    csrf_cookie = os.getenv("LETTERBOXD_COOKIE_CSRF")
+    user_cookie = os.getenv("LETTERBOXD_COOKIE_CURRENT")
 
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-            viewport={"width": 1920, "height": 1080},
-            locale="en-US"
-        )
-
-        page = await context.new_page()
-        
-        # Aplicar stealth (oculta firmas de WebDriver y automatización)
-        await stealth_async(page)
-
+    # UC Mode (Undetected Chromedriver) necesita headless=False normalmente para funcionar al 100%
+    # pero en Linux/GitHub Actions podemos usar xvfb junto con headless=False
+    # SB lo gestiona inteligentemente con el parámetro uc=True.
+    with SB(uc=True, headless=headless, xvfb=True) as sb:
         try:
-            # ── PASO 1: Login ────────────────────────────────────────────
-            log.info("Navegando a la página de login de Letterboxd…")
-            await page.goto("https://letterboxd.com/sign-in/", wait_until="networkidle")
-
-            # Rellenar formulario de login
-            await page.fill('input[name="username"]', username)
-            await page.fill('input[name="password"]', password)
-
-            # Click en el botón de login
-            await page.click('.button-action[type="submit"], input[type="submit"], button[type="submit"]')
-
-            # Esperar a que la página responda sin fallar si hay requests sueltos
-            await page.wait_for_load_state("domcontentloaded", timeout=20_000)
-
-            # Pequeña pausa explícita para que el server termine su redireccion
-            await page.wait_for_timeout(3000)
-
-            current_url = page.url
-            log.info(f"URL tras login: {current_url}")
-
-            # Si seguimos en sign-in → login falló
-            if "sign-in" in current_url or "login" in current_url:
-                error_el = page.locator(".flash-messages li, .error-text, [class*='error']")
-                error_msg = ""
-                if await error_el.count() > 0:
-                    error_msg = (await error_el.first.text_content() or "").strip()
-                raise LetterboxdLoginError(
-                    f"Login fallido: usuario o contraseña incorrectos. "
-                    f"Mensaje Letterboxd: '{error_msg}'. "
-                    f"Verifica LETTERBOXD_USER y LETTERBOXD_PASS en los Secrets de GitHub."
-                )
-
-            log.info(f"✅ Login exitoso en Letterboxd (redirigió a: {current_url})")
-
-            # Pequeña pausa para estabilidad
-            await page.wait_for_timeout(2000)
+            log.info("Navegando inicialmente a Letterboxd...")
+            sb.open("https://letterboxd.com/")
+            sb.sleep(2)
+            
+            if csrf_cookie and user_cookie:
+                log.info("🔑 Cookies mágicas detectadas. Inyectando sesión...")
+                sb.add_cookie({"name": "com.xk72.webparts.csrf", "value": csrf_cookie, "domain": ".letterboxd.com", "path": "/"})
+                sb.add_cookie({"name": "letterboxd.user.CURRENT", "value": user_cookie, "domain": ".letterboxd.com", "path": "/"})
+                sb.sleep(1)
+            else:
+                log.info("No hay cookies configuradas. Intentando login tradicional con usuario/pass...")
+                sb.open("https://letterboxd.com/sign-in/")
+                sb.type('input[name="username"]', username)
+                sb.type('input[name="password"]', password)
+                sb.click('.button-action[type="submit"], input[type="submit"], button[type="submit"]')
+                sb.sleep(5)
+                
+                current_url = sb.get_current_url()
+                if "sign-in" in current_url or "login" in current_url:
+                    raise LetterboxdLoginError(
+                        "Login fallido: Cloudflare bloqueó el robot o clave incorrecta. "
+                        "Por favor configura LETTERBOXD_COOKIE_CSRF y LETTERBOXD_COOKIE_CURRENT en los Secrets."
+                    )
+                log.info(f"✅ Login clásico exitoso en Letterboxd (redirigió a: {current_url})")
 
             # ── PASO 2: Ir a la página de importación ───────────────────
             log.info("Navegando a la sección de importación…")
-            await page.goto(LETTERBOXD_IMPORT_URL, wait_until="networkidle")
-
-            # Verificar que estamos en la página correcta
-            await page.wait_for_selector(
-                'input[type="file"]', timeout=15_000
-            )
+            sb.open(LETTERBOXD_IMPORT_URL)
+            sb.sleep(3)
 
             # ── PASO 3: Subir el archivo CSV ─────────────────────────────
             log.info(f"Subiendo CSV: {csv_path}")
-            file_input = page.locator('input[type="file"]')
-            await file_input.set_input_files(csv_path)
-
-            # Esperar a que el archivo sea procesado (puede tardar)
-            await page.wait_for_timeout(2000)
+            # SB choose_file funciona perfectamente con inputs ocultos
+            sb.choose_file('input[type="file"]', csv_path)
+            sb.sleep(2)
 
             # ── PASO 4: Confirmar la importación ─────────────────────────
-            # Buscar el botón de "Import" o "Begin Import"
-            import_btn = page.locator(
-                'button:has-text("Import"), '
-                'button:has-text("Begin import"), '
-                'input[type="submit"][value*="Import"]'
-            )
-
-            if await import_btn.count() == 0:
-                raise LetterboxdImportError(
-                    "No se encontró el botón de importación. "
-                    "Letterboxd puede haber cambiado su interfaz."
-                )
-
-            await import_btn.first.click()
-            log.info("Importación enviada. Esperando confirmación…")
+            # Click the start import button
+            sb.click('#imdb-form input[type="submit"], input[value="Start Import"]')
+            log.info("Importación enviada. Esperando a que Cloudflare verifique y complete…")
 
             # Esperar resultado (hasta 60 segundos)
             try:
-                await page.wait_for_selector(
-                    '.import-results, .import-complete, [class*="success"], h1:has-text("Import")',
-                    timeout=60_000,
-                )
+                # SeleniumBase pasará el Turnstile transparente acá
+                sb.wait_for_element('.import-results, .import-complete, [class*="success"], h1:contains("Import")', timeout=60)
                 log.info("✅ Importación completada en Letterboxd")
-            except PWTimeoutError:
+            except Exception:
                 log.warning(
-                    "Timeout esperando confirmación de importación. "
-                    "Puede que haya funcionado de todos modos."
+                    "Timeout esperando confirmación visual de importación. "
+                    "Puede que haya funcionado, Turnstile a veces esconde el DOM final."
                 )
 
-            # Captura de pantalla del resultado (útil para debuggear en CI)
+            # Captura de pantalla del resultado
             screenshot_path = "/tmp/letterboxd_import_result.png"
-            await page.screenshot(path=screenshot_path, full_page=True)
+            # Aseguramos que la carpeta existe en local
+            os.makedirs(os.path.dirname(screenshot_path), exist_ok=True)
+            sb.save_screenshot(screenshot_path)
             log.info(f"📸 Captura guardada en {screenshot_path}")
 
         except (LetterboxdLoginError, LetterboxdImportError):
-            # Re-lanzar errores de dominio
-            await page.screenshot(path="/tmp/letterboxd_error.png", full_page=True)
+            sb.save_screenshot("/tmp/letterboxd_error.png")
             raise
         except Exception as e:
-            await page.screenshot(path="/tmp/letterboxd_error.png", full_page=True)
-            raise LetterboxdImportError(f"Error inesperado en Playwright: {e}") from e
-        finally:
-            await context.close()
-            await browser.close()
+            sb.save_screenshot("/tmp/letterboxd_error.png")
+            raise LetterboxdImportError(f"Error inesperado en SeleniumBase: {e}") from e
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -420,12 +371,13 @@ async def main() -> None:
         log.info("⏭  Solo hay series nuevas (sin películas). Letterboxd no necesita actualización.")
         return
 
-    # ── Paso 3: Subir a Letterboxd via Playwright ────────────────────────
-    await upload_to_letterboxd(
-        csv_path=csv_path,
-        username=required_vars["LETTERBOXD_USER"],
-        password=required_vars["LETTERBOXD_PASS"],
-        headless=headless,
+    # ── Paso 3: Subir a Letterboxd via SeleniumBase ────────────────────────
+    await asyncio.to_thread(
+        upload_to_letterboxd,
+        csv_path,
+        required_vars["LETTERBOXD_USER"],
+        required_vars["LETTERBOXD_PASS"],
+        headless
     )
 
     log.info("🎉 ¡Sincronización completada exitosamente!")

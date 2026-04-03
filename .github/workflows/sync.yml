@@ -50,9 +50,9 @@ jobs:
       - name: 📦 Instalar dependencias
         run: pip install -r requirements.txt
 
-      # 4. Instalar Chromium (con todas sus dependencias del sistema)
-      - name: 🌐 Instalar Chromium para Playwright
-        run: playwright install --with-deps chromium
+      # 4. Preparar entorno para SeleniumBase (requiere Chrome virtual)
+      - name: 🌐 Instalar Chrome virtual (Xvfb)
+        run: sudo apt-get install -y xvfb
 
       # 5. Ejecutar el script de sincronización
       - name: 🎬 Ejecutar sincronización
@@ -64,10 +64,15 @@ jobs:
           LETTERBOXD_USER:   ${{ secrets.LETTERBOXD_USER }}
           LETTERBOXD_PASS:   ${{ secrets.LETTERBOXD_PASS }}
 
+          # Las nuevas cookies secretas
+          LETTERBOXD_COOKIE_CSRF:   ${{ secrets.LETTERBOXD_COOKIE_CSRF }}
+          LETTERBOXD_COOKIE_CURRENT:   ${{ secrets.LETTERBOXD_COOKIE_CURRENT }}
+
           # ── Variables opcionales ──
-          DAYS_BACK: ${{ github.event.inputs.days_back || '1' }}   # en modo hourly, solo 24h atrás
+          DAYS_BACK: ${{ github.event.inputs.days_back || '1' }}
           HEADLESS:  ${{ github.event.inputs.headless || 'true' }}
-        run: python sync.py
+        # Xvfb crea una pantalla gráfica falsa para engañar a Cloudflare
+        run: xvfb-run python sync.py
 
       # 6. Si falla, subir capturas de pantalla como artefacto para debug
       - name: 📸 Subir capturas de error
