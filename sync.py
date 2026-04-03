@@ -200,7 +200,7 @@ def build_csv(items: list[dict]) -> str:
 
     with open(output_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["imdbID", "Title", "Year", "WatchedDate", "Rating10"])
+        writer.writerow(["Title", "Year", "WatchedDate", "Rating10", "IMDb URI"])
 
         for m in movies:
             watched_date = ""
@@ -211,12 +211,14 @@ def build_csv(items: list[dict]) -> str:
                 except ValueError:
                     watched_date = m["watched_at"][:10]
 
+            imdb_url = f"https://www.imdb.com/title/{m['imdb_id']}/" if m.get("imdb_id") else ""
+
             writer.writerow([
-                m["imdb_id"],
                 m["title"],
                 m["year"],
                 watched_date,
                 "",  # Rating: Trakt requiere OAuth para leer ratings
+                imdb_url,
             ])
 
     log.info(f"CSV generado: {output_path} ({len(movies)} películas)")
@@ -278,40 +280,33 @@ def upload_to_letterboxd(
             sb.open(LETTERBOXD_IMPORT_URL)
             sb.sleep(3)
 
-            # ── PASO 3+4: Subir CSV y enviar formulario via fetch() puro ──────────
-            log.info(f"Leyendo CSV para enviarlo via fetch: {csv_path}")
-            with open(csv_path, "rb") as f:
-                csv_bytes = list(f.read())
+            # ── PASO 3+4: Subir CSV nativamente y clickear "Save" ──────────
+            log.info(f"Subiendo CSV form input de Letterboxd: {csv_path}")
+            
+            # Subir archivo al input file nativo de la web
+            sb.choose_file('input[type="file"]', csv_path)
+            sb.sleep(3)
 
-            # Leer CSRF del cookie inyectado
-            csrf_val = csrf_cookie or ""
-
-            log.info("Enviando formulario de importación via JavaScript fetch()...")
-            result = sb.execute_script(f"""
-                const bytes = new Uint8Array({csv_bytes});
-                const blob = new Blob([bytes], {{type: 'text/csv'}});
-                const fd = new FormData();
-                fd.append('__csrf', '{csrf_val}');
-                fd.append('file', blob, 'trakt_export.csv');
-                return fetch('/import/csv/', {{
-                    method: 'POST',
-                    body: fd,
-                    credentials: 'include',
-                    redirect: 'follow'
-                }}).then(r => r.status + '|' + r.url).catch(e => 'ERROR:' + e);
-            """)
-            sb.sleep(5)
-            log.info(f"Resultado fetch: {result}")
-
-            # Esperar resultado (hasta 60 segundos)
+            # A veces hay que hacer click en el botón de Importar luego de seleccionar
             try:
-                # SeleniumBase pasará el Turnstile transparente acá
-                sb.wait_for_element('.import-results, .import-complete, [class*="success"], h1:contains("Import")', timeout=60)
-                log.info("✅ Importación completada en Letterboxd")
+                sb.click('button:contains("Import"), input[type="submit"]', timeout=3)
+            except Exception:
+                pass
+            
+            sb.sleep(5)
+            log.info("Página de revisión de importación completada.")
+
+            # Esperar a que la página de Review nos muestre el botón de confirmación ("Save X films", "Save", etc)
+            try:
+                # El botón final suele tener una clase accionable con "Save"
+                sb.wait_for_element('button[class*="action"]:contains("Save"), a.button-action:contains("Save")', timeout=15)
+                sb.click('button[class*="action"]:contains("Save"), a.button-action:contains("Save")')
+                log.info("✅ Botón 'Save' final clickeado correctamente.")
+                sb.sleep(5)
             except Exception:
                 log.warning(
-                    "Timeout esperando confirmación visual de importación. "
-                    "Puede que haya funcionado, Turnstile a veces esconde el DOM final."
+                    "Timeout esperando confirmación visual de 'Save'. "
+                    "Puede que el botón tenga un nombre distinto o Turnstile escondió el DOM. Revisa la captura manual."
                 )
 
             # Captura de pantalla del resultado
