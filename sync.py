@@ -345,9 +345,9 @@ async def main() -> None:
         )
         sys.exit(1)
 
-    # HOURS_WINDOW: ventana de horas para el modo horario (por defecto 2h,
-    # así si una ejecución falla, la siguiente recoge lo perdido)
-    hours_window = int(os.getenv("HOURS_WINDOW", "2"))
+    # HOURS_WINDOW: ventana de horas para el modo horario
+    hw_env = os.getenv("HOURS_WINDOW", "")
+    hours_window = int(hw_env) if hw_env.strip() else 2
     headless     = os.getenv("HEADLESS",    "true").lower() == "true"
     sync_shows   = os.getenv("SYNC_SHOWS",  "true").lower() == "true"
 

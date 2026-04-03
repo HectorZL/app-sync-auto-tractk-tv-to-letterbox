@@ -13,10 +13,10 @@ on:
   # Permite ejecutarlo manualmente desde la pestaña "Actions" de tu repo
   workflow_dispatch:
     inputs:
-      days_back:
-        description: "Cuántos días hacia atrás sincronizar"
+      hours_back:
+        description: "Cuántas horas hacia atrás buscar en Trakt"
         required: false
-        default: "1"   # hourly mode: solo necesitamos las últimas 24h
+        default: "24"
       headless:
         description: "Correr en modo headless (sin ventana visible)"
         required: false
@@ -69,8 +69,8 @@ jobs:
           LETTERBOXD_COOKIE_CURRENT:   ${{ secrets.LETTERBOXD_COOKIE_CURRENT }}
 
           # ── Variables opcionales ──
-          DAYS_BACK: ${{ github.event.inputs.days_back || '1' }}
-          HEADLESS:  ${{ github.event.inputs.headless || 'true' }}
+          HOURS_WINDOW: ${{ github.event.inputs.hours_back }}
+          HEADLESS:     ${{ github.event.inputs.headless || 'true' }}
         # Xvfb crea una pantalla gráfica falsa para engañar a Cloudflare
         run: xvfb-run python sync.py
 
